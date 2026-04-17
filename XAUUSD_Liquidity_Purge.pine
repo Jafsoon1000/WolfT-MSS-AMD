@@ -1,0 +1,156 @@
+//@version=5
+indicator("ICT AMD Session Purge (XAUUSD)", overlay=true, max_boxes_count=50, max_lines_count=50, max_labels_count=50)
+
+// -----------------------------------------------------------------------------
+// USER INPUTS
+// -----------------------------------------------------------------------------
+grpTime = "Session Settings (Germany/CET)"
+// Germany Time Zone is UTC+1 / UTC+2 (DST). We use GMT+2 as specified by user.
+asianSessionStr = input.session("0000-0800", title="1. Accumulation Session", group=grpTime)
+judasSessionStr = input.session("0900-1030", title="2. Manipulation (Raid) Session", group=grpTime)
+distSessionStr  = input.session("1030-1700", title="3. Distribution (MSS) Session", group=grpTime)
+tzInput         = input.string("GMT+2", title="Timezone", group=grpTime, tooltip="Use GMT+2 for current Germany Time")
+
+grpLogic = "Model Parameters"
+raidPoints = input.float(2.0, title="Minimum Raid Size vs Range", group=grpLogic, step=0.1, tooltip="Distance price must pierce the Asian range. In Gold, $2.00 distance represents around 20 standard pips.")
+unbalancedRatio = input.float(0.70, title="Unbalanced Candle Body %", group=grpLogic, minval=0.5, maxval=1.0, tooltip="For MSS, the breakout candle body must be this % of its total high-low range to show true institutional momentum.")
+
+// -----------------------------------------------------------------------------
+// VALIDATION & STATES
+// -----------------------------------------------------------------------------
+isAsian = time(timeframe.period, asianSessionStr, tzInput)
+isJudas = time(timeframe.period, judasSessionStr, tzInput)
+isDist  = time(timeframe.period, distSessionStr, tzInput)
+
+var float BSL = na
+var float SSL = na
+var int asianStartIdx = na
+var int asianEndIdx = na
+
+var float raidHigh = na  
+var float raidLow = na   
+var bool isBullishRaid = false // Price raided SSL (We look for longs)
+var bool isBearishRaid = false // Price raided BSL (We look for shorts)
+
+// Track Swing Highs and Lows dynamically using a 3-bar pivot method
+var float recentSwingHigh = na
+var float recentSwingLow = na
+var int swingHighIdx = na
+var int swingLowIdx = na
+
+if ta.pivothigh(high, 3, 3)
+    recentSwingHigh := high[3]
+    swingHighIdx := bar_index[3]
+if ta.pivotlow(low, 3, 3)
+    recentSwingLow := low[3]
+    swingLowIdx := bar_index[3]
+
+// -----------------------------------------------------------------------------
+// PHASE 1: ACCUMULATION (00:00 - 08:00)
+// -----------------------------------------------------------------------------
+// Reset states at the start of a new Asian session
+if isAsian and not isAsian[1]
+    BSL := high
+    SSL := low
+    asianStartIdx := bar_index
+    isBullishRaid := false
+    isBearishRaid := false
+    raidHigh := na
+    raidLow := na
+
+// Continually track Highest High and Lowest Low during Asian session
+if isAsian
+    BSL := math.max(nz(BSL, high), high)
+    SSL := math.min(nz(SSL, low), low)
+    asianEndIdx := bar_index
+
+// Draw the Asian Range Box once session ends
+if not isAsian and isAsian[1]
+    box.new(asianStartIdx, BSL, asianEndIdx, SSL, extend=extend.none, 
+         border_color=color.new(color.blue, 70), border_width=1, border_style=line.style_dotted,
+         bgcolor=color.new(color.blue, 90), text="Phase 1: Accumulation\n(Asian Range)", text_halign=text.align_center, text_color=color.blue)
+    
+    // Draw BSL and SSL lines extending into the future distribution hours
+    line.new(asianStartIdx, BSL, asianEndIdx + 110, BSL, color=color.red, style=line.style_dashed, width=1)
+    line.new(asianStartIdx, SSL, asianEndIdx + 110, SSL, color=color.green, style=line.style_dashed, width=1)
+    label.new(asianEndIdx + 10, BSL, "BSL", color=color.new(color.red, 100), textcolor=color.red, style=label.style_label_down, size=size.small)
+    label.new(asianEndIdx + 10, SSL, "SSL", color=color.new(color.green, 100), textcolor=color.green, style=label.style_label_up, size=size.small)
+
+// -----------------------------------------------------------------------------
+// PHASE 2: MANIPULATION / JUDAS SWING (09:00 - 10:30)
+// -----------------------------------------------------------------------------
+// The algorithmic Stop Hunt! Price must pierce range by `raidPoints` distance.
+
+if isJudas
+    // Trap Traders Below SSL (Bullish Raid = Smart Money Buying Discounted Retail Sell Stops)
+    if low < (SSL - raidPoints) and not isBullishRaid
+        isBullishRaid := true
+        label.new(bar_index, low, "⬇️ LIQUIDITY PURGE\n(Judas Down)", 
+             color=color.new(color.maroon, 20), textcolor=color.white, style=label.style_label_up)
+    
+    // Trap Traders Above BSL (Bearish Raid = Smart Money Selling To Premium Retail Buy Stops)
+    if high > (BSL + raidPoints) and not isBearishRaid
+        isBearishRaid := true
+        label.new(bar_index, high, "⬆️ LIQUIDITY PURGE\n(Judas Up)", 
+             color=color.new(color.teal, 20), textcolor=color.white, style=label.style_label_down)
+
+// -----------------------------------------------------------------------------
+// PHASE 3: DISTRIBUTION / MSS / FVG SIGNALS (10:30 - 17:00)
+// -----------------------------------------------------------------------------
+
+// Definition of an Initial Institutional Move: Unbalanced Candle
+// Body consists of majority of the range, creating rapid momentum / institutional displacement.
+bodySize = math.abs(close - open)
+candleRange = high - low
+isUnbalanced = bodySize > (candleRange * unbalancedRatio)
+
+var bool mssBullishFired = false
+var bool mssBearishFired = false
+
+// Reset flags on a new day to prevent old raids from triggering next day
+if ta.change(time("D"))
+    mssBullishFired := false
+    mssBearishFired := false
+
+if isDist
+    // ---------------- Bullish Reversal Model ----------------
+    // Logic: Price purged SSL, now aggressively moving up, shifting structure
+    if isBullishRaid and not mssBullishFired and not na(recentSwingHigh) 
+        if close > recentSwingHigh and close > open and isUnbalanced
+            mssBullishFired := true
+            
+            // Draw MSS Line Break
+            line.new(swingHighIdx, recentSwingHigh, bar_index, recentSwingHigh, color=color.lime, width=2)
+            label.new(bar_index, recentSwingHigh, "🚀 Bullish MSS", style=label.style_label_down, 
+                 color=color.new(color.lime, 100), textcolor=color.lime, size=size.normal)
+            
+            // Scan for recent Bullish Fair Value Gap (FVG) footprint in the breakout wave
+            // FVG setup: Candle 1 High to Candle 3 Low must not overlap.
+            for i = 0 to 4
+                // A gap exists between low of recent candle and high of older candle
+                if low[i] > high[i+2]
+                    box.new(bar_index[i+2], low[i], bar_index[i] + 15, high[i+2], 
+                         bgcolor=color.new(color.lime, 80), border_color=color.lime, text="FVG Entry", text_color=color.lime, text_size=size.small)
+                    break
+                    
+    // ---------------- Bearish Reversal Model ----------------
+    // Logic: Price purged BSL, now aggressively moving down, shifting structure
+    if isBearishRaid and not mssBearishFired and not na(recentSwingLow)
+        if close < recentSwingLow and close < open and isUnbalanced
+            mssBearishFired := true
+            
+            // Draw MSS Line Break
+            line.new(swingLowIdx, recentSwingLow, bar_index, recentSwingLow, color=color.red, width=2)
+            label.new(bar_index, recentSwingLow, "📉 Bearish MSS", style=label.style_label_up, 
+                 color=color.new(color.red, 100), textcolor=color.red, size=size.normal)
+            
+            // Scan for recent Bearish Fair Value Gap (FVG) footprint in the breakout wave
+            // FVG setup: Candle 1 Low to Candle 3 High must not overlap.
+            for i = 0 to 4
+                // A gap exists between high of recent candle and low of older candle
+                if high[i] < low[i+2]
+                    box.new(bar_index[i+2], high[i], bar_index[i] + 15, low[i+2], 
+                         bgcolor=color.new(color.red, 80), border_color=color.red, text="FVG Entry", text_color=color.red, text_size=size.small)
+                    break
+
+// END OF SCRIPT

@@ -87,12 +87,14 @@ if isJudas
         isBullishRaid := true
         label.new(bar_index, low, "⬇️ LIQUIDITY PURGE\n(Judas Down)", 
              color=color.new(color.maroon, 20), textcolor=color.white, style=label.style_label_up)
+        alert("Bullish Liquidity Purge (Judas Down) on XAUUSD", alert.freq_once_per_bar_close)
     
     // Trap Traders Above BSL (Bearish Raid = Smart Money Selling To Premium Retail Buy Stops)
     if high > (BSL + raidPoints) and not isBearishRaid
         isBearishRaid := true
         label.new(bar_index, high, "⬆️ LIQUIDITY PURGE\n(Judas Up)", 
              color=color.new(color.teal, 20), textcolor=color.white, style=label.style_label_down)
+        alert("Bearish Liquidity Purge (Judas Up) on XAUUSD", alert.freq_once_per_bar_close)
 
 // -----------------------------------------------------------------------------
 // PHASE 3: DISTRIBUTION / MSS / FVG SIGNALS (10:30 - 17:00)
@@ -123,6 +125,7 @@ if isDist
             line.new(swingHighIdx, recentSwingHigh, bar_index, recentSwingHigh, color=color.lime, width=2)
             label.new(bar_index, recentSwingHigh, "🚀 Bullish MSS", style=label.style_label_down, 
                  color=color.new(color.lime, 100), textcolor=color.lime, size=size.normal)
+            alert("Bullish MSS detected on XAUUSD!", alert.freq_once_per_bar_close)
             
             // Scan for recent Bullish Fair Value Gap (FVG) footprint in the breakout wave
             // FVG setup: Candle 1 High to Candle 3 Low must not overlap.
@@ -131,6 +134,7 @@ if isDist
                 if low[i] > high[i+2]
                     box.new(bar_index[i+2], low[i], bar_index[i] + 15, high[i+2], 
                          bgcolor=color.new(color.lime, 80), border_color=color.lime, text="FVG Entry", text_color=color.lime, text_size=size.small)
+                    alert("Bullish FVG Formed on XAUUSD", alert.freq_once_per_bar_close)
                     break
                     
     // ---------------- Bearish Reversal Model ----------------
@@ -143,6 +147,7 @@ if isDist
             line.new(swingLowIdx, recentSwingLow, bar_index, recentSwingLow, color=color.red, width=2)
             label.new(bar_index, recentSwingLow, "📉 Bearish MSS", style=label.style_label_up, 
                  color=color.new(color.red, 100), textcolor=color.red, size=size.normal)
+            alert("Bearish MSS detected on XAUUSD!", alert.freq_once_per_bar_close)
             
             // Scan for recent Bearish Fair Value Gap (FVG) footprint in the breakout wave
             // FVG setup: Candle 1 Low to Candle 3 High must not overlap.
@@ -151,6 +156,25 @@ if isDist
                 if high[i] < low[i+2]
                     box.new(bar_index[i+2], high[i], bar_index[i] + 15, low[i+2], 
                          bgcolor=color.new(color.red, 80), border_color=color.red, text="FVG Entry", text_color=color.red, text_size=size.small)
+                    alert("Bearish FVG Formed on XAUUSD", alert.freq_once_per_bar_close)
                     break
+
+// -----------------------------------------------------------------------------
+// DASHBOARD HUD
+// -----------------------------------------------------------------------------
+var table dash = table.new(position.top_right, 2, 3, border_width = 1, border_color=color.gray)
+if barstate.islast
+    table.cell(dash, 0, 0, "Current Phase:", text_color=color.white, bgcolor=color.new(color.black, 40))
+    string phaseText = isAsian ? "Accumulation" : (isJudas ? "Manipulation" : (isDist ? "Distribution" : "Out of Session"))
+    color phaseColor = isAsian ? color.new(color.blue, 50) : (isJudas ? color.new(color.maroon, 50) : (isDist ? color.new(color.purple, 50) : color.new(color.gray, 50)))
+    table.cell(dash, 1, 0, phaseText, text_color=color.white, bgcolor=phaseColor)
+    
+    table.cell(dash, 0, 1, "Raid Status:", text_color=color.white, bgcolor=color.new(color.black, 40))
+    string raidText = isBullishRaid ? "Bullish (SSL Purged)" : (isBearishRaid ? "Bearish (BSL Purged)" : "None")
+    table.cell(dash, 1, 1, raidText, text_color=color.white, bgcolor=color.new(color.black, 40))
+    
+    table.cell(dash, 0, 2, "MSS Fired:", text_color=color.white, bgcolor=color.new(color.black, 40))
+    string mssText = mssBullishFired ? "Bullish" : (mssBearishFired ? "Bearish" : "Waiting")
+    table.cell(dash, 1, 2, mssText, text_color=color.white, bgcolor=color.new(color.black, 40))
 
 // END OF SCRIPT

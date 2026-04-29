@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.icons8.com/color/96/000000/gold-bars.png" alt="Gold Indicator" width="100" />
+  <img src="assets/wolf_logo.png" alt="Wolf Trading Logo" width="200" />
 </p>
 
 # 🐺 WolfT-MSS-AMD: Session-Based Liquidity Purge (XAUUSD)
